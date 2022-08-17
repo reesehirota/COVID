@@ -1,4 +1,4 @@
-# COVID
+# COVID-19, New York State
 Created by Reese Hirota, Karina Joshipura, Saee Chitale
 February 2021
 
