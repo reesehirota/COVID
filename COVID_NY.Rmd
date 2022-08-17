@@ -1,0 +1,230 @@
+---
+title: "COVID_NY"
+author: "Reese Hirota"
+date: "2/25/2021"
+output: pdf_document
+---
+1. State - 
+ny
+
+- less than 50 mil
+- publically available intervention data
+- converging data
+
+
+
+2. Plot Data of new cases and deaths - march 15th 2020 to nov 1st 2020
+```{r}
+library(gridExtra)
+library(covidcast)
+library(ggplot2)
+# the covid cast package takes a start_day, end_day, cases or deaths, and geographic value
+ny_cases <- covidcast_signal(data_source = "jhu-csse",
+                               signal ="confirmed_incidence_num",
+                               start_day = "2020-03-15", end_day = "2020-11-01",
+                               geo_type = "state", geo_values = "ny")
+## GGplot syntax may take some time to get used to 
+ggplot(ny_cases,aes(x=time_value,y=value)) + geom_point() + theme_bw() + xlab("Date") + ylab("New Cases")
+ny_deaths <- covidcast_signal(data_source = "jhu-csse",
+                               signal ="deaths_incidence_num",
+                               start_day = "2020-03-15", end_day = "2020-11-01",
+                               geo_type = "state", geo_values = "ny")
+ggplot(ny_deaths,aes(x=time_value,y=value)) + geom_point() + theme_bw() + xlab("Date") + ylab("New Deaths")
+
+```
+3. Model parameters
+from website : https://github.com/midas-network/COVID-19
+all except beta
+
+
+4. design model on how we expect covid 19 to flow - it should have new cases and deaths
+no H - ambiguity on whether its counted as infectious people or not 
+```{r}
+s_t <- c(19450000) #19 million
+e_t <- c(0)
+i_t <- c(729) #check online
+d_t <- c(0)
+r_t <- c(0)
+gamma <- 1/12 #symptom onset to recovery (I -> R)
+beta <- 2 #FIGURE IT OUT 0.2
+sigma <- 1/9.55 #average of 10.69+8.41 - values of incubation in the US (E->I)
+case_fatality <- 0.055 #average of symptom onset to death (I -> D)
+r_0 <- beta/gamma
+new_cases <- c(0)
+new_deaths <- c(0)
+N <- s_t[1] + i_t[1] 
+for (nsim in 1:100){
+  for (t in 2:231){
+    p_s_i <- beta*i_t[t-1]/N
+    #if (t >2 & t<7){
+    #  p_s_i <- 0.85*beta*i_t[t-1]/N
+    # }
+    # if (t>7 & t<19){
+    # p_s_i <- 0.35*beta*i_t[t-1]/N
+    # }
+    # if (t>19 & t<25){
+    # p_s_i <- 0.02*beta*i_t[t-1]/N
+    #  }
+    #if (t>25){
+    #  p_s_i <- 0.028*beta*i_t[t-1]/N
+    # }
+    if (t>2 & t<7) {
+      p_s_i <- 1.98*beta*i_t[t-1]/N
+    }
+    if(t>7 & t<16){
+      p_s_i <- 0.7*beta*i_t[t-1]/N
+    }
+    if(t>16){
+      p_s_i <-  0.05*beta*i_t[t-1]/N
+    } 
+    if (t > 30 & t <40) {
+      p_s_i <-  0.035*beta*i_t[t-1]/N
+    }
+    if (t > 50 & t <100) {
+      p_s_i <-  0.03*beta*i_t[t-1]/N
+    }
+    if (t >150){
+      p_s_i <-  .11*beta*i_t[t-1]/N
+    }
+    n_t_s_e <- rbinom(1,s_t[t-1],p_s_i)
+    n_t_e_i <- rbinom(1,e_t[t-1],sigma)
+    n_t_i_star <- rbinom(1,i_t[t-1],gamma+case_fatality)
+    n_t_i_d_and_n_t_i_r <- rmultinom(1,n_t_i_star,c(case_fatality/(gamma+case_fatality),gamma/(gamma+case_fatality)))
+    n_t_i_d <- n_t_i_d_and_n_t_i_r[1]
+    n_t_i_r <- n_t_i_d_and_n_t_i_r[2]
+    s_t[t] <- s_t[t-1] - n_t_s_e 
+    e_t[t] <- e_t[t-1] - n_t_e_i + n_t_s_e
+    i_t[t] <- i_t[t-1] - n_t_i_r + n_t_e_i - n_t_i_d
+    d_t[t] <- d_t[t-1] + n_t_i_d 
+    r_t[t] <- r_t[t-1] + n_t_i_r
+    new_cases[t] <-n_t_e_i # ask if there is a way to prevent double count since someone + in e compartment would be counted as new E and when moves to I would be counted AGAIN as new I
+    new_deaths[t] <- n_t_i_d
+  }  
+}
+plot(new_cases, type ='l', col='red',ylim=c(0,40000))
+lines(new_deaths, col='black')
+lines(ny_cases$value, col='blue')
+lines(ny_deaths$value, col = 'green')
+#abline(v=7) # add lines to timesteps where interventions happened
+```
+
+5.
+```{r}
+simulate_expected_curve <- function(beta){
+  
+matrix_of_simulations <- matrix(NA,nrow=100,ncol=231)
+matrix_of_deaths <- matrix(NA,nrow=100,ncol=231)
+
+for (nsim in 1:100){
+s_t <- c(19450000) #check online
+e_t <- c(0)
+i_t <- c(729) #check online
+d_t <- c(0)
+r_t <- c(0)
+
+gamma <- 1/12 #symptom onset to recovery (I -> R)
+beta <- 2 #FIGURE IT OUT 0.2
+sigma <- 1/9.55 #average of 10.69+8.41 - values of incubation in the US (E->I)
+case_fatality <- 0.06 #average of symptom onset to death (I -> D)
+r_0 <- beta/gamma
+new_cases <- c(0)
+new_deaths <- c(0)
+
+N <- s_t[1] + i_t[1]
+  
+  for (t in 2:231){
+    
+    p_s_i <-  beta*i_t[t-1]/N
+    
+    n_t_s_e <- rbinom(1,s_t[t-1],p_s_i)
+    n_t_e_i <- rbinom(1,e_t[t-1],sigma)
+    n_t_i_star <- rbinom(1,i_t[t-1],min(1, gamma+case_fatality))
+    n_t_i_d_and_n_t_i_r <- rmultinom(1,n_t_i_star,c(case_fatality/(gamma+case_fatality),gamma/(gamma+case_fatality)))
+    n_t_i_d <- n_t_i_d_and_n_t_i_r[1]
+    n_t_i_r <- n_t_i_d_and_n_t_i_r[2]
+  
+   s_t[t] <- s_t[t-1] - n_t_s_e 
+   e_t[t] <- e_t[t-1] - n_t_e_i + n_t_s_e
+   i_t[t] <- i_t[t-1] - n_t_i_r + n_t_e_i - n_t_i_d
+   d_t[t] <- d_t[t-1] + n_t_i_d 
+   r_t[t] <- r_t[t-1] + n_t_i_r
+   new_cases[t] <- n_t_e_i # ask if there is a way to prevent double count since someone + in e compartment would be counted as new E and when moves to I would be counted AGAIN as new I
+   
+   new_deaths[t] <- n_t_i_d
+    }
+  
+  matrix_of_simulations[nsim,] <- new_cases
+  matrix_of_deaths[nsim,] <- new_deaths
+  }
+return (colMeans(matrix_of_simulations))
+return(colMeans(matrix_of_deaths))
+}
+truth <- ny_cases$new_cases # not sure 
+guess <- simulate_expected_curve(2) #change value of beta
+plot(truth,type='l',ylim=c(0,1000),xlim=c(0,1000),col='red')
+lines(guess)
+print (mean((truth-guess)^2))
+
+truth2 <- ny_deaths$new_deaths
+guess2 <- simulate_expected_curve(2) #change value of beta
+plot(truth2,type='l',ylim=c(0,1000),xlim=c(0,1000),col='black')
+lines(guess2)
+print (mean((truth2-guess2)^2))
+
+```
+```{r}
+head(ny_cases)
+```
+
+6. forecast model:
+a) another month - change to 261
+b) end of pandemic - change t to something real big like 900
+```{r}
+#S -> E -> I -> R 
+#           `> D
+
+
+s_t <- c(0) #check online
+e_t <- c(0)
+i_t <- c(1000) #check online
+d_t <- c(0)
+r_t <- c(0)
+
+gamma <- 1/12 #check online
+beta <- 2  #check online 
+sigma <- 1/9.55 #check online
+r_0 <- beta/gamma
+new_cases <- c(0)
+new_deaths <- c(0)
+
+N <- s_t[1] + i_t[1] 
+
+for (nsim in 1:100){
+for (t in 2:231){ #change this to a HUGE number to see where new_cases die out
+   
+  p_s_i <- beta*i_t[t-1]/N
+  
+   # INCLUDE TIME BEARING BETA
+  
+  n_t_s_e <- rbinom(1,s_t[t-1],p_s_i)
+  n_t_e_i <- rbinom(1,e_t[t-1],sigma)
+  n_t_i_star <- rbinom(1,i_t[t-1],gamma+sigma)
+  n_t_i_d_and_n_t_i_r <- rmultinom(1,n_t_i_star,c(sigma/(gamma+sigma),gamma/(gamma+sigma)))
+  n_t_i_d <- n_t_i_d_and_n_t_i_r[1]
+  n_t_i_r <- n_t_i_d_and_n_t_i_r[2]
+  
+   s_t[t] <- s_t[t-1] - n_t_s_e 
+   e_t[t] <- e_t[t-1] - n_t_e_i + n_t_s_e
+   i_t[t] <- i_t[t-1] - n_t_i_r + n_t_e_i - n_t_i_d
+   d_t[t] <- d_t[t-1] + n_t_i_d 
+   r_t[t] <- r_t[t-1] + n_t_i_r
+   new_cases[t] <- n_t_e_i # ask if there is a way to prevent double count since someone + in e compartment would be counted as new E and when moves to I would be counted AGAIN as new I
+   
+   new_deaths[t] <- n_t_i_d
+}  
+}
+plot(new_cases, type ='l', col='red')
+lines(new_deaths, col='black')
+#abline() - add lines to timesteps where interventions happened
+
+```
